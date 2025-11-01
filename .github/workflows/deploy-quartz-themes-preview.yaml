@@ -1,0 +1,83 @@
+name: Deploy Quartz Themes preview to GitHub Pages
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "40 */4 * * *"
+  push:
+    branches:
+      - v4
+
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+
+concurrency:
+  group: "pages"
+  cancel-in-progress: true
+
+jobs:
+  build:
+    if: ${{ github.repository != 'quartz-themes/quartz-themes-preview-template' }}
+    runs-on: ubuntu-22.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # Fetch all history for git info
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Update Quartz
+        run: |
+          git config pull.rebase >&- || git config pull.rebase false 
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git config --global user.name "github-actions[bot]"
+          git config remote.template.url >&- || git remote add template https://github.com/quartz-themes/quartz-themes-preview-template.git
+          git pull template v4 -X theirs --no-edit
+          git pull origin v4 -X theirs --no-edit
+          git push || git push --force
+      - name: Install Dependencies
+        uses: nick-fields/retry@v3
+        with:
+          command: npm ci
+          timeout_minutes: 3
+          max_attempts: 3
+          on_retry_command: |
+            git config pull.rebase >&- || git config pull.rebase true
+            git config --global user.email "github-actions[bot]@users.noreply.github.com"
+            git config --global user.name "github-actions[bot]"
+            npm install
+            git add package.json
+            git add package-lock.json
+            git commit -m "synced package.json and package-lock.json"
+            git push
+      - name: Fetch Quartz Theme
+        uses: nick-fields/retry@v3
+        with:
+          command: curl -s -S https://raw.githubusercontent.com/saberzero1/quartz-themes/develop/action_develop_branch.sh | bash -s -- ${{ github.event.repository.name }}
+          timeout_minutes: 2
+          max_attempts: 3
+      - name: Build Quartz Docs
+        uses: nick-fields/retry@v3
+        with:
+          command: npx quartz build -d docs
+          timeout_minutes: 5
+          max_attempts: 3
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: public
+
+  deploy:
+    needs: build
+    timeout-minutes: 10
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
