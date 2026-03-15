@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Just in case
 
-declare -a small=("flexcyon.tui")
+declare -a small=("80s-neon")
 
 declare -a themes=(
   "80s-neon"
@@ -450,19 +450,48 @@ cd ..
 mkdir temp
 cd temp
 
-#for i in "${small[@]}"; do
+# for i in "${small[@]}"; do
 for i in "${themes[@]}"; do
   echo "Start ${i}"
-  # git clone git@github.com:quartz-themes/${i}.git
-  git clone https://github.com/quartz-themes/${i}.git
+  git clone git@github.com:quartz-themes/${i}.git
+  IN="${i}.null"
+  arrIN=(${IN//\./ })
+  THEME=$(echo ${arrIN[0]})
+  VARIATION=$(echo ${arrIN[1]})
+  echo THEME: ${THEME}
+  echo VARIATION: ${VARIATION}
+  # git clone https://github.com/quartz-themes/${i}.git
   cd ${i}
   # npm install
   # git config pull.rebase >&- || git config pull.rebase false
   git config --local pull.rebase false
+
   # git config remote.template.url >&- || git remote add template git@github.com:quartz-themes/quartz-themes-preview-template.git
+  git config remote.upstream.url >&- || git remote add upstream https://github.com/jackyzha0/quartz.git
   git config remote.template.url >&- || git remote add template https://github.com/quartz-themes/quartz-themes-preview-template.git
-  git pull template v4 -X theirs --no-edit || git pull template v4 -X theirs --allow-unrelated-histories --no-edit
+  # git pull upstream v4 -X theirs --no-edit || git pull upstream v4 -X theirs --allow-unrelated-histories --no-edit
+  git pull upstream v4 -X theirs --no-edit || git pull upstream v4 -X theirs --allow-unrelated-histories --no-edit
+  git pull upstream v5 -X theirs --no-edit || git pull upstream v5 -X theirs --allow-unrelated-histories --no-edit
+  # Resolve modify/delete conflicts from v4→v5 migration by accepting v5 deletions
+  if git diff --name-only --diff-filter=U 2>/dev/null | grep -q .; then
+    git diff --name-only --diff-filter=U | xargs git rm -f
+    git -c core.editor=true merge --continue || git commit -a --no-edit -m "Resolved v5 merge conflicts"
+  fi
+  git fetch template v5
+  git pull template v5 -X theirs --no-edit || git pull template v5 -X theirs --allow-unrelated-histories --no-edit
+  # Resolve any remaining conflicts from template pull
+  if git diff --name-only --diff-filter=U 2>/dev/null | grep -q .; then
+    git diff --name-only --diff-filter=U | xargs git rm -f
+    git -c core.editor=true merge --continue || git commit -a --no-edit -m "Resolved template merge conflicts"
+  fi
   git pull origin v4 -X theirs --no-edit || git pull origin v4 -X theirs --allow-unrelated-histories --no-edit
+  # Resolve any remaining conflicts from origin pull
+  if git diff --name-only --diff-filter=U 2>/dev/null | grep -q .; then
+    git diff --name-only --diff-filter=U | xargs git rm -f
+    git -c core.editor=true merge --continue || git commit -a --no-edit -m "Resolved origin merge conflicts"
+  fi
+  # git pull origin v5 -X theirs --no-edit || git pull origin v5 -X theirs --allow-unrelated-histories --no-edit
+  # git pull template v5 -X theirs --no-edit || git pull template v5 -X theirs --allow-unrelated-histories --no-edit
   # rm .github/workflows/deploy-preview.yml
   # rm .github/workflows/update.yml
 
@@ -471,12 +500,18 @@ for i in "${themes[@]}"; do
 
   git commit -a -m "Updated to latest template."
 
-  # replace pageTitle: "Quartz 4", with pageTitle: "${i}", in `quartz.config.ts`
-  sed -e 's|pageTitle: "Quartz 4"|pageTitle: "'${i}'"|' -i "" quartz.config.ts
+  # replace pageTitle: "Quartz 5", with pageTitle: "${i}", in `quartz.config.ts`
+  sed -i -e 's|pageTitle: .*|pageTitle: '${i}'|' quartz.config.yaml
+  sed -i -e 's|pageTitle: .*|pageTitle: '${i}'|' quartz.config.default.yaml
 
   # replace baseUrl: "quartz.jzhao.xyz", with baseUrl: "quartz-themes.github.io/${i}", in `quartz.config.ts`
-  sed -e 's|baseUrl: "quartz.jzhao.xyz"|baseUrl: "quartz-themes.github.io/'${i}'"|' -i "" quartz.config.ts
+  sed -i -e 's|baseUrl: .*|baseUrl: quartz-themes.github.io/'${i}'|' quartz.config.yaml
+  sed -i -e 's|baseUrl: .*|baseUrl: quartz-themes.github.io/'${i}'|' quartz.config.default.yaml
 
+  sed -i -e 's|      theme: [a-zA-Z].*|      theme: '${THEME}'|' quartz.config.yaml
+  sed -i -e 's|      theme: [a-zA-Z].*|      theme: '${THEME}'|' quartz.config.default.yaml
+  sed -i -e 's|      variation: .*|      variation: '${VARIATION}'|' quartz.config.yaml
+  sed -i -e 's|      variation: .*|      variation: '${VARIATION}'|' quartz.config.default.yaml
   # replace ---.*?Quartz is a fast, with ---\n\nQuartz is a fase, in `docs/index.md` using perl
   # perl -0777 -i -pe 's/\n---.*?Quartz is a fast/\n---\n\nQuartz is a fast/' docs/index.md
 
@@ -485,7 +520,7 @@ for i in "${themes[@]}"; do
 
   git commit -a -m "Applied overrides to template."
 
-  git push || git push --force
+  git push origin v4 || git push -u origin v4 --force
   # git push
   cd ..
   rm -rf ${i}
